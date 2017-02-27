@@ -18,14 +18,21 @@ __global__ void Draw(char *frame) {
 	// Do not just submit the original file provided by the TA!
 	const int y = blockIdx.y * blockDim.y + threadIdx.y;
 	const int x = blockIdx.x * blockDim.x + threadIdx.x;
+       
 	if (y < H and x < W) {
 		char c;
-		if (x == W-1) {
+
+        if (x == W-1) {
 			c = y == H-1 ? '\0' : '\n';
 		} else if (y == 0 or y == H-1 or x == 0 or x == W-2) {
 			c = ':';
 		} else {
-			c = ' ';
+            int r = (x - 20) * (x - 20) + (y - 6) * (y - 6);
+            if (r < 25) {
+                c = '#';
+            } else {
+                c = ' ';
+            }
 		}
 		frame[y*W+x] = c;
 	}
