@@ -1,57 +1,62 @@
 #include "lab1.h"
 static const unsigned W = 1366;
 static const unsigned H = 768;
-static const unsigned NFRAME = 240;
+static const unsigned NFRAME = 480;
 
-#define N_PARTICLES 10000
-#define SCALE (1.0 / 100)
-#define INIT_DISTANCE 500
-#define GRAVITY 50
-#define G_REPULSION 10.0
+#define N_PARTICLES 4900
+#define SCALE (1.0 / 10)
+#define INIT_DISTANCE 100
+#define GRAVITY 5.0
+#define G_REPULSION 1.0
 
-// typedef double2 Coord;
-// typedef double2 Velocity;
+// typedef float2 Coord;
+// typedef float2 Velocity;
 // typedef short3* Velocity;
 
-inline __host__ __device__ void operator*=(double2&a, double b) {
+inline __host__ __device__ void operator*=(float2&a, float b) {
     a.x *= b;
     a.y *= b;
 }
 
-inline __host__ __device__ void operator+=(double2&a, double2 b) {
+inline __host__ __device__ void operator/=(float2&a, float b) {
+    a.x /= b;
+    a.y /= b;
+}
+
+inline __host__ __device__ void operator+=(float2&a, float2 b) {
     a.x += b.x;
     a.y += b.y;
 }
 
 
-inline __host__ __device__  double2 operator-(double2 a, double2 b) {
-    return make_double2(a.x - b.x, a.y - b.y);
+inline __host__ __device__  float2 operator-(float2 a, float2 b) {
+    return make_float2(a.x - b.x, a.y - b.y);
 }
 
-inline __host__ __device__  double2 operator+(double2 a, double2 b) {
-    return make_double2(a.x + b.x, a.y + b.y);
+inline __host__ __device__  float2 operator+(float2 a, float2 b) {
+    return make_float2(a.x + b.x, a.y + b.y);
 }
 
-inline __host__ __device__  double2 operator*(double2 a, double b) {
-    return make_double2(a.x * b, a.y * b);
+inline __host__ __device__  float2 operator*(float2 a, float b) {
+    return make_float2(a.x * b, a.y * b);
 }
 
-inline __host__ __device__  double2 operator/(double2 a, double b) {
-    return make_double2(a.x / b, a.y / b);
+inline __host__ __device__  float2 operator/(float2 a, float b) {
+    return make_float2(a.x / b, a.y / b);
 }
 
 
-__device__ double norm(double2 v) {
+__device__ float norm(float2 v) {
     return sqrt(v.x * v.x + v.y * v.y);
 }
 
 
 struct Lab1VideoGenerator::Impl {
 	int t = 0;
-    double2* coordinate;
-    double2* velocity;
-    double2* prev_coordinate;
-    double2* prev_velocity;
+    float2* coordinate;
+    float2* velocity;
+    float2* prev_coordinate;
+    float2* prev_velocity;
     short3* canvas;
 };
 
@@ -95,7 +100,7 @@ void rgb2yuv(short3* canvas, uint8_t* yuv) {
     rgb2yuvKernel<<<dimGrid, dimBlock>>>(canvas, yuv);    
 }
 
-__device__ void drawDot(double2 coord, short3 color, short3* canvas) {
+__device__ void drawDot(float2 coord, short3 color, short3* canvas) {
     int x = coord.x * SCALE + 20;
     int y = coord.y * SCALE;
     if ( x >= 0 && x < W - 1 && y >= 0 && y < H - 1) {
@@ -107,13 +112,13 @@ __device__ void drawDot(double2 coord, short3 color, short3* canvas) {
 }
 
 
-__global__ void initParticlesKernel(double2* coord, double2* velocity, short3* canvas) {
+__global__ void initParticlesKernel(float2* coord, float2* velocity, short3* canvas) {
     auto i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < N_PARTICLES) {
         int x = i % 100;
         int y = i / 100;
-        coord[i] = make_double2(x * INIT_DISTANCE, y * INIT_DISTANCE);
-        velocity[i] = make_double2(0, 0);
+        coord[i] = make_float2(x * INIT_DISTANCE, y * INIT_DISTANCE);
+        velocity[i] = make_float2(0, 0);
     }
 }
 
@@ -121,13 +126,13 @@ __global__ void initParticlesKernel(double2* coord, double2* velocity, short3* c
 // __device__ void cohesion(
 
 
-void initParticles(double2* coord, double2* velocity, short3* canvas) {
+void initParticles(float2* coord, float2* velocity, short3* canvas) {
     initParticlesKernel<<<(N_PARTICLES + 255) / 256, 256>>>(coord, velocity, canvas);
 }
 
 
-__global__ void updateParticlesKernel(double2* prev_coord, double2* prev_velocity,
-                                      double2* coord, double2* velocity, short3* canvas) {
+__global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
+                                      float2* coord, float2* velocity, short3* canvas) {
     const short3 WHITE = make_short3(255, 255, 255);
 
     auto i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -149,15 +154,18 @@ __global__ void updateParticlesKernel(double2* prev_coord, double2* prev_velocit
         // calculate acceleration
         velocity[i].y += GRAVITY;
         for (int j = 0; j < N_PARTICLES; ++j) {
-            auto d = coord[i] - coord[j];
-            auto d2 = d.x * d.x + d.y * d.y;
-            d = d * G_REPULSION / (d2 * sqrt(d2));
-            velocity[i] += d;
+            float2 d = prev_coord[i] - prev_coord[j];
+            double d2 = (double)(d.x * d.x + d.y * d.y);
+            if (d2 < 1e-5) {
+                continue;
+            }
+            float2 a = d * G_REPULSION / (d2 * sqrt(d2));
+            velocity[i] += a;
         }
             
         
         // update coordinate
-        coord[i] += velocity[i];
+        coord[i] += velocity[i] / 8;
         
         // boundary
         coord[i].x = coord[i].x < 10/SCALE ? 10/SCALE : coord[i].x;
@@ -169,18 +177,18 @@ __global__ void updateParticlesKernel(double2* prev_coord, double2* prev_velocit
 }
 
 
-void updateParticles(double2* prev_coord, double2* prev_velocity,
-                     double2* coord, double2* velocity, short3* canvas) {
+void updateParticles(float2* prev_coord, float2* prev_velocity,
+                     float2* coord, float2* velocity, short3* canvas) {
     updateParticlesKernel<<<(N_PARTICLES + 31) / 32, 32>>>(prev_coord, prev_velocity,
                                                            coord, velocity, canvas);
 }
 
 
 Lab1VideoGenerator::Lab1VideoGenerator(): impl(new Impl) {
-    cudaMalloc(&(impl->velocity), sizeof(double2) * N_PARTICLES);
-    cudaMalloc(&(impl->coordinate), sizeof(double2) * N_PARTICLES);
-    cudaMalloc(&(impl->prev_velocity), sizeof(double2) * N_PARTICLES);
-    cudaMalloc(&(impl->prev_coordinate), sizeof(double2) * N_PARTICLES);
+    cudaMalloc(&(impl->velocity), sizeof(float2) * N_PARTICLES);
+    cudaMalloc(&(impl->coordinate), sizeof(float2) * N_PARTICLES);
+    cudaMalloc(&(impl->prev_velocity), sizeof(float2) * N_PARTICLES);
+    cudaMalloc(&(impl->prev_coordinate), sizeof(float2) * N_PARTICLES);
     cudaMalloc(&(impl->canvas), sizeof(short3) * W * H * 3 / 2);
     fill(impl->canvas);
     initParticles(impl->coordinate, impl->velocity, impl->canvas);
@@ -201,12 +209,12 @@ void Lab1VideoGenerator::get_info(Lab1VideoInfo &info) {
 void Lab1VideoGenerator::Generate(uint8_t *yuv) {
 	// cudaMemset(yuv, (impl->t)*255/NFRAME, W*H);
 	// cudaMemset(yuv+W*H, 128, W*H/2);    
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 4; ++i) {
         fill(impl->canvas);
         cudaMemcpy(impl->prev_coordinate, impl->coordinate,
-                   sizeof(double2) * N_PARTICLES, cudaMemcpyDeviceToDevice);
+                   sizeof(float2) * N_PARTICLES, cudaMemcpyDeviceToDevice);
         cudaMemcpy(impl->prev_velocity, impl->velocity,
-                   sizeof(double2) * N_PARTICLES, cudaMemcpyDeviceToDevice);
+                   sizeof(float2) * N_PARTICLES, cudaMemcpyDeviceToDevice);
         updateParticles(impl->prev_coordinate, impl->prev_velocity,
                         impl->coordinate, impl->velocity, impl->canvas);    
         rgb2yuv(impl->canvas, yuv);
