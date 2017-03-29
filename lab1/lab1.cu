@@ -5,9 +5,10 @@ static const unsigned NFRAME = 480;
 
 #define N_PARTICLES 4900
 #define SCALE (1.0 / 10)
-#define INIT_DISTANCE 100
-#define GRAVITY 5.0
+#define INIT_DISTANCE 50
+#define GRAVITY 10.0
 #define G_REPULSION 1.0
+#define G_COHESION 1.0
 
 // typedef float2 Coord;
 // typedef float2 Velocity;
@@ -156,10 +157,10 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
         for (int j = 0; j < N_PARTICLES; ++j) {
             float2 d = prev_coord[i] - prev_coord[j];
             double d2 = (double)(d.x * d.x + d.y * d.y);
-            if (d2 < 1e-5) {
-                continue;
+            if (d2 < 1e-6) {
+                d2 = 1e-6;
             }
-            float2 a = d * G_REPULSION / (d2 * sqrt(d2));
+            float2 a = d / sqrt(d2) * (G_REPULSION / d2 - G_COHESION / sqrt(d2));
             velocity[i] += a;
         }
             
