@@ -7,11 +7,43 @@ static const unsigned NFRAME = 240;
 #define SCALE (1.0 / 100)
 #define INIT_DISTANCE 500
 #define GRAVITY 50
+#define G_REPULSION 10.0
 
 // typedef double2 Coord;
 // typedef double2 Velocity;
 // typedef short3* Velocity;
 
+inline __host__ __device__ void operator*=(double2&a, double b) {
+    a.x *= b;
+    a.y *= b;
+}
+
+inline __host__ __device__ void operator+=(double2&a, double2 b) {
+    a.x += b.x;
+    a.y += b.y;
+}
+
+
+inline __host__ __device__  double2 operator-(double2 a, double2 b) {
+    return make_double2(a.x - b.x, a.y - b.y);
+}
+
+inline __host__ __device__  double2 operator+(double2 a, double2 b) {
+    return make_double2(a.x + b.x, a.y + b.y);
+}
+
+inline __host__ __device__  double2 operator*(double2 a, double b) {
+    return make_double2(a.x * b, a.y * b);
+}
+
+inline __host__ __device__  double2 operator/(double2 a, double b) {
+    return make_double2(a.x / b, a.y / b);
+}
+
+
+__device__ double norm(double2 v) {
+    return sqrt(v.x * v.x + v.y * v.y);
+}
 
 
 struct Lab1VideoGenerator::Impl {
@@ -86,6 +118,9 @@ __global__ void initParticlesKernel(double2* coord, double2* velocity, short3* c
 }
 
 
+// __device__ void cohesion(
+
+
 void initParticles(double2* coord, double2* velocity, short3* canvas) {
     initParticlesKernel<<<(N_PARTICLES + 255) / 256, 256>>>(coord, velocity, canvas);
 }
@@ -111,10 +146,19 @@ __global__ void updateParticlesKernel(double2* prev_coord, double2* prev_velocit
             velocity[i].x = - velocity[i].x;
         }
 
+        // calculate acceleration
         velocity[i].y += GRAVITY;
-        coord[i].x += velocity[i].x;
-        coord[i].y += velocity[i].y;
-
+        for (int j = 0; j < N_PARTICLES; ++j) {
+            auto d = coord[i] - coord[j];
+            auto d2 = d.x * d.x + d.y * d.y;
+            d = d * G_REPULSION / (d2 * sqrt(d2));
+            velocity[i] += d;
+        }
+            
+        
+        // update coordinate
+        coord[i] += velocity[i];
+        
         // boundary
         coord[i].x = coord[i].x < 10/SCALE ? 10/SCALE : coord[i].x;
         coord[i].x = coord[i].x > (W - 10)/SCALE ? (W - 10)/SCALE : coord[i].x;
