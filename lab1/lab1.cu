@@ -3,7 +3,7 @@ static const unsigned W = 1366;
 static const unsigned H = 768;
 static const unsigned NFRAME = 480;
 
-#define N_PARTICLES 4900
+#define N_PARTICLES 10000
 #define SCALE (1.0 / 10)
 #define INIT_DISTANCE 50
 #define GRAVITY 10.0
@@ -163,7 +163,11 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
             float2 a = d / sqrt(d2) * (G_REPULSION / d2 - G_COHESION / sqrt(d2));
             velocity[i] += a;
         }
-            
+        velocity[i].x -= G_COHESION / (prev_coord[i].x - 15);
+        velocity[i].x += G_COHESION / (W - 15 - prev_coord[i].x);
+        velocity[i].y += G_COHESION / (prev_coord[i].y - 15);
+
+        
         
         // update coordinate
         coord[i] += velocity[i] / 8;
