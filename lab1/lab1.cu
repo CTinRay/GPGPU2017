@@ -6,10 +6,10 @@ static const unsigned NFRAME = 480;
 #define N_PARTICLES 4900
 #define SCALE (1.0 / 5)
 #define INIT_DISTANCE 50
-#define GRAVITY 10.0
+#define GRAVITY 5.0
 #define G_REPULSION 1.0
 #define G_COHESION 1.0
-#define LOSS 1.01
+#define LOSS 1.05
 
 // typedef float2 Coord;
 // typedef float2 Velocity;
@@ -47,6 +47,14 @@ inline __host__ __device__  float2 operator/(float2 a, float b) {
     return make_float2(a.x / b, a.y / b);
 }
 
+inline __host__ __device__  short3 operator*(float a, short3 b) {
+    return make_short3(a * b.x, a * b.y, a * b.z);
+}
+
+inline __host__ __device__  short3 operator+(short3 a, short3 b) {
+    return make_short3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
 
 __device__ float norm(float2 v) {
     return sqrt(v.x * v.x + v.y * v.y);
@@ -66,8 +74,8 @@ struct Lab1VideoGenerator::Impl {
 
 __global__ void fillKernel(short3* canvas, float alpha) {
     unsigned int i = blockDim.x * blockIdx.x + threadIdx.x;
-    if (i < W * H) {
-        canvas[i] = make_short3(255, 255, 255);
+    if (i < W * H) {        
+        canvas[i] = (1 - alpha) * canvas[i] + alpha * make_short3(0, 0, 0);
     }
 }
     
@@ -131,19 +139,30 @@ void initParticles(float2* coord, float2* velocity, short3* canvas) {
 
 
 __device__ short3 acce2color(float2 acce) {
-    float acceNorm = acce.x * acce.x + acce.y * acce.y;
-    // float acceNorm = norm(acce);
+    // float acceNorm = acce.x * acce.x + acce.y * acce.y;
+    float acceNorm = norm(acce);
     short3 color;
-    float threshold = GRAVITY * GRAVITY;
-    float sig = (1 / (1 + expf(threshold - acceNorm)) - 0.5) * 255;
-    if (acceNorm > threshold) {
-        color.x = 20 + sig;
-        color.y = 255 - color.x;
-        color.z = 20;
+    float threshold = GRAVITY;
+    float sig = (1 / (1 + expf(threshold - acceNorm)) - 0.5) * 255 * 4;
+    if (sig > 0) {
+        if (sig > 255) {
+            color.x = 255;
+            color.y = 255 - (sig - 255);
+        } else {
+            color.x = sig;
+            color.y = 255;
+        }
+        color.z = 0;
     } else {
-        color.z = 20 - sig;
-        color.y = 255 - color.z;
-        color.x = 20;
+        if (sig > -255) {
+            color.z = -sig;
+            color.y = 255;
+        } else {
+            color.y = 255 + (sig + 255);
+            color.z = 255;
+
+        }        
+        color.x = 0;
     }
     return color;
 }
@@ -236,7 +255,7 @@ void Lab1VideoGenerator::Generate(uint8_t *yuv) {
 	// cudaMemset(yuv, (impl->t)*255/NFRAME, W*H);
 	// cudaMemset(yuv+W*H, 128, W*H/2);    
     for (int i = 0; i < 4; ++i) {
-        fill(impl->canvas);
+        fill(impl->canvas, 0.1);
         cudaMemcpy(impl->prev_coordinate, impl->coordinate,
                    sizeof(float2) * N_PARTICLES, cudaMemcpyDeviceToDevice);
         cudaMemcpy(impl->prev_velocity, impl->velocity,
