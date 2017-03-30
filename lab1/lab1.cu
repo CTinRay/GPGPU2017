@@ -3,8 +3,8 @@ static const unsigned W = 1366;
 static const unsigned H = 768;
 static const unsigned NFRAME = 480;
 
-#define N_PARTICLES 2500
-#define SCALE (1.0 / 10)
+#define N_PARTICLES 4900
+#define SCALE (1.0 / 5)
 #define INIT_DISTANCE 50
 #define GRAVITY 10.0
 #define G_REPULSION 1.0
@@ -67,7 +67,7 @@ struct Lab1VideoGenerator::Impl {
 __global__ void fillKernel(short3* canvas, float alpha) {
     unsigned int i = blockDim.x * blockIdx.x + threadIdx.x;
     if (i < W * H) {
-        canvas[i] = make_short3(0, 0, 0);
+        canvas[i] = make_short3(255, 255, 255);
     }
 }
     
@@ -125,11 +125,27 @@ __global__ void initParticlesKernel(float2* coord, float2* velocity, short3* can
 }
 
 
-// __device__ void cohesion(
-
-
 void initParticles(float2* coord, float2* velocity, short3* canvas) {
     initParticlesKernel<<<(N_PARTICLES + 255) / 256, 256>>>(coord, velocity, canvas);
+}
+
+
+__device__ short3 acce2color(float2 acce) {
+    float acceNorm = acce.x * acce.x + acce.y * acce.y;
+    // float acceNorm = norm(acce);
+    short3 color;
+    float threshold = GRAVITY * GRAVITY;
+    float sig = (1 / (1 + expf(threshold - acceNorm)) - 0.5) * 255;
+    if (acceNorm > threshold) {
+        color.x = 20 + sig;
+        color.y = 255 - color.x;
+        color.z = 20;
+    } else {
+        color.z = 20 - sig;
+        color.y = 255 - color.z;
+        color.x = 20;
+    }
+    return color;
 }
 
 
@@ -144,13 +160,13 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
         float2 acce = make_float2(0, 0);
 
         // reflection
-        if (coord[i].y >= (H - 10)/SCALE) {
+        if (coord[i].y >= (H - 15)/SCALE) {
             acce.y -= 2 * prev_velocity[i].y;
         }
-        if (coord[i].x >= (W - 10)/SCALE) {
+        if (coord[i].x >= (W - 15)/SCALE) {
             acce.x -= 2 * prev_velocity[i].x;
         }
-        if (coord[i].x <= 10/SCALE) {
+        if (coord[i].x <= 15/SCALE) {
             acce.x -= 2 * prev_velocity[i].x;
         }
 
@@ -181,7 +197,8 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
         coord[i].x = coord[i].x > (W - 10)/SCALE ? (W - 10)/SCALE : coord[i].x;
         coord[i].y = coord[i].y > (H - 10)/SCALE ? (H - 10)/SCALE : coord[i].y;
         
-        drawDot(coord[i], WHITE, canvas);
+        short3 color = acce2color(acce);
+        drawDot(coord[i], color, canvas);
     }
 }
 
