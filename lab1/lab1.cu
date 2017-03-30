@@ -3,12 +3,13 @@ static const unsigned W = 1366;
 static const unsigned H = 768;
 static const unsigned NFRAME = 480;
 
-#define N_PARTICLES 10000
+#define N_PARTICLES 2500
 #define SCALE (1.0 / 10)
 #define INIT_DISTANCE 50
 #define GRAVITY 10.0
 #define G_REPULSION 1.0
 #define G_COHESION 1.0
+#define LOSS 1.01
 
 // typedef float2 Coord;
 // typedef float2 Velocity;
@@ -140,20 +141,21 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
     if (i < N_PARTICLES) {
         velocity[i] = prev_velocity[i];
         coord[i] = prev_coord[i];
+        float2 acce = make_float2(0, 0);
 
         // reflection
         if (coord[i].y >= (H - 10)/SCALE) {
-            velocity[i].y = - velocity[i].y;
+            acce.y -= 2 * prev_velocity[i].y;
         }
         if (coord[i].x >= (W - 10)/SCALE) {
-            velocity[i].x = - velocity[i].x;
+            acce.x -= 2 * prev_velocity[i].x;
         }
         if (coord[i].x <= 10/SCALE) {
-            velocity[i].x = - velocity[i].x;
+            acce.x -= 2 * prev_velocity[i].x;
         }
 
         // calculate acceleration
-        velocity[i].y += GRAVITY;
+        acce.y += GRAVITY;
         for (int j = 0; j < N_PARTICLES; ++j) {
             float2 d = prev_coord[i] - prev_coord[j];
             double d2 = (double)(d.x * d.x + d.y * d.y);
@@ -161,13 +163,15 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
                 d2 = 1e-6;
             }
             float2 a = d / sqrt(d2) * (G_REPULSION / d2 - G_COHESION / sqrt(d2));
-            velocity[i] += a;
+            acce += a;
         }
-        velocity[i].x -= G_COHESION / (prev_coord[i].x - 15);
-        velocity[i].x += G_COHESION / (W - 15 - prev_coord[i].x);
-        velocity[i].y += G_COHESION / (prev_coord[i].y - 15);
+        acce.x -= G_COHESION / (prev_coord[i].x - 15);
+        acce.x += G_COHESION / (W - 15 - prev_coord[i].x);
+        acce.y += G_COHESION / (prev_coord[i].y - 15);
 
         
+        // update velocity
+        velocity[i] += acce / LOSS;
         
         // update coordinate
         coord[i] += velocity[i] / 8;
