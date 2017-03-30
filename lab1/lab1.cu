@@ -1,13 +1,13 @@
 #include "lab1.h"
 static const unsigned W = 1366;
-static const unsigned H = 768;
+static const unsigned H = 1024;
 static const unsigned NFRAME = 480;
 
-#define N_PARTICLES 4900
-#define SCALE (1.0 / 5)
-#define INIT_DISTANCE 50
-#define GRAVITY 5.0
-#define G_REPULSION 1.0
+#define N_PARTICLES 10000
+#define SCALE (1.0 / 20)
+#define INIT_DISTANCE 80
+#define GRAVITY 10.0
+#define G_REPULSION 1.5
 #define G_COHESION 1.0
 #define LOSS 1.05
 
@@ -124,10 +124,11 @@ __device__ void drawDot(float2 coord, short3 color, short3* canvas) {
 
 __global__ void initParticlesKernel(float2* coord, float2* velocity, short3* canvas) {
     auto i = blockDim.x * blockIdx.x + threadIdx.x;
+    int xStart = (W/SCALE - INIT_DISTANCE*100) / 2;
     if (i < N_PARTICLES) {
         int x = i % 100;
         int y = i / 100;
-        coord[i] = make_float2(x * INIT_DISTANCE, y * INIT_DISTANCE);
+        coord[i] = make_float2(xStart + x * INIT_DISTANCE, y * INIT_DISTANCE);
         velocity[i] = make_float2(0, 0);
     }
 }
@@ -194,8 +195,8 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
         for (int j = 0; j < N_PARTICLES; ++j) {
             float2 d = prev_coord[i] - prev_coord[j];
             double d2 = (double)(d.x * d.x + d.y * d.y);
-            if (d2 < 1e-6) {
-                d2 = 1e-6;
+            if (d2 < 1e-5) {
+                d2 = 1e-5;
             }
             float2 a = d / sqrt(d2) * (G_REPULSION / d2 - G_COHESION / sqrt(d2));
             acce += a;
@@ -224,7 +225,7 @@ __global__ void updateParticlesKernel(float2* prev_coord, float2* prev_velocity,
 
 void updateParticles(float2* prev_coord, float2* prev_velocity,
                      float2* coord, float2* velocity, short3* canvas) {
-    updateParticlesKernel<<<(N_PARTICLES + 31) / 32, 32>>>(prev_coord, prev_velocity,
+    updateParticlesKernel<<<(N_PARTICLES + 63) / 64, 64>>>(prev_coord, prev_velocity,
                                                            coord, velocity, canvas);
 }
 
@@ -254,8 +255,8 @@ void Lab1VideoGenerator::get_info(Lab1VideoInfo &info) {
 void Lab1VideoGenerator::Generate(uint8_t *yuv) {
 	// cudaMemset(yuv, (impl->t)*255/NFRAME, W*H);
 	// cudaMemset(yuv+W*H, 128, W*H/2);    
-    for (int i = 0; i < 4; ++i) {
-        fill(impl->canvas, 0.1);
+    for (int i = 0; i < 8; ++i) {
+        fill(impl->canvas, 0.15);
         cudaMemcpy(impl->prev_coordinate, impl->coordinate,
                    sizeof(float2) * N_PARTICLES, cudaMemcpyDeviceToDevice);
         cudaMemcpy(impl->prev_velocity, impl->velocity,
