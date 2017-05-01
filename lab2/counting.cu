@@ -20,32 +20,57 @@ struct one_if_not_space : public thrust::unary_function<char,int>
 
 void CountPosition1(const char *text, int *pos, int text_size)
 {
-    one_if_not_space func;
-    thrust::transform(thrust::device, text, text + text_size, pos, func);    
+    thrust::transform(thrust::device, text, text + text_size, pos, one_if_not_space());    
     thrust::inclusive_scan_by_key(thrust::device, pos, pos + text_size, pos, pos);
 }
 
 
-__global__ void countPositionKernel(const char *text, int *pos, int text_size) {
-    auto i = blockDim.x * blockIdx.x + threadIdx.x;
+__global__ void countPositionKernel(int n, const char *text, int *pos, int text_size) {
 
-    if (text[i] == '\n') {
-        pos[i] = 0;
-    }
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; 
+         i < n; 
+         i += blockDim.x * gridDim.x) {
+        // if (text[i] == '\n') {
+        //     pos[i] = 0;
+        // }
     
-    if (i == 0 || text[i - 1] == '\n') {
-        int cnt = 0;
-        while (i + cnt < text_size && text[i + cnt] != '\n') {
-            pos[i + cnt] = cnt + 1;
-            cnt += 1;
+        if (i == 0 || text[i - 1] == '\n') {
+            int cnt = 0;
+            while (i + cnt < text_size && text[i + cnt] != '\n') {
+                pos[i + cnt] = cnt + 1;
+                cnt += 1;
+            }
         }
     }
-
+    
 }
+
+// __global__ void treeUpKernel(const char *text, int *pot, int text_size) {
+//     auto i = blockDim.x * blockIdx.x + threadIdx.x;
+
+//     if (i >= text_size) {
+//         return;
+//     }
+    
+//     pot[i] = text[i] == '\n' ? 0 : 1;
+    
+//     int not_done = 0;
+//     int depth = 0;
+//     int width = 1;
+
+//     while (not_done != 0) {
+//         pot[i] = pot[i] + pot[i - width];
+//     }
+// }
 
 void CountPosition2(const char *text, int *pos, int text_size)
 {
-    countPositionKernel<<< (text_size + 255)/ 256, 256>>>(text, pos, text_size);
+
+    int numSMs;
+    cudaDeviceGetAttribute(&numSMs, cudaDevAttrMultiProcessorCount, 0);
+    // Perform SAXPY on 1M elements
+    countPositionKernel<<<32*numSMs, 256>>>(text_size, text, pos, text_size);
+    // countPositionKernel<<< (text_size + 255)/ 256, 256>>>(text, pos, text_size);
     // one_if_not_space func;
     // thrust::transform(text, text + text_size, pos, func);
     // thrust::inclusive_scan_by_key(pos, pos + text_size, pos, pos);
