@@ -1,6 +1,9 @@
 #include "lab3.h"
 #include <cstdio>
 
+#define MIN(A, B) ((A) < (B) ? (A) : (B))
+#define N_HIER 2
+
 __device__ __host__ int CeilDiv(int a, int b) { return (a-1)/b + 1; }
 __device__ __host__ int CeilAlign(int a, int b) { return CeilDiv(a, b) * b; }
 
@@ -99,13 +102,56 @@ __global__ void PoissonImageCloningIteration(
 }
 
 
-void PoissonImageCloning(
+__global__ void DownSample(const float *buf1, float *buf2,
+                           const int w, const int h, const int rate,
+                           const int nColors) {
+    
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+	const int x = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (x < w / nColors / rate and y < h / nColors  / rate) {
+        int xMax = MIN((x + 1) * rate, w);
+        int yMax = MIN((y + 1) * rate, h);
+        float sum[] = {0, 0, 0};
+        for (int i = x * rate; i < xMax; ++i) {
+            for (int j = y * rate; j < yMax; ++j) {
+                for (int c = 0; c < nColors; ++c) {
+                    sum[c] += buf1[nColors * (x + y * w) + c];
+                }
+            }
+        }
+        for (int c = 0; c < nColors; ++c) {
+            buf2[nColors * (x + y * (w / rate)) + c] =
+                sum[c] / (xMax - x) / (yMax - y);
+        }
+    }    
+}
+
+
+__global__ void UpSample(const float *buf1, float *buf2,
+                         const int w, const int h, const int rate,
+                         const int nColors) {
+    
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+	const int x = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (x < w and y < h) {
+        for (int c = 0; c < nColors; ++c) {
+            buf2[nColors * (x + y * w) + c] =
+                buf1[nColors * ((x / rate) + (y / rate) * (w / rate)) + c];
+        }
+    }    
+}
+
+
+void PoissonImagecloningSub(
 	const float *background,
 	const float *target,
 	const float *mask,
 	float *output,
 	const int wb, const int hb, const int wt, const int ht,
 	const int oy, const int ox) {
+
     // set up
     float *fixed, *buf1, *buf2;
     cudaMalloc(&fixed, 3*wt*ht*sizeof(float));
@@ -133,4 +179,44 @@ void PoissonImageCloning(
     cudaFree(fixed);
     cudaFree(buf1);
     cudaFree(buf2);
+}
+
+void PoissonImageCloning(
+	const float *background,
+	const float *target,
+	const float *mask,
+	float *output,
+	const int wb, const int hb, const int wt, const int ht,
+	const int oy, const int ox) {
+
+    
+    float *prevBackground;
+    cudaMalloc(&prevBackground, 3*wt*ht*sizeof(float));
+    cudaMemcpy(prevBackground, background, sizeof(float)*3*wt*ht,
+               cudaMemcpyDeviceToDevice);
+    
+    for (int i = 0; i < N_HIER; ++i) {
+        int rate = 1 << (N_HIER - i);
+        
+        float *subBackground, *subTarget, *subMask;
+        cudaMalloc(&subBackground, 3*(wt/rate)*(ht/rate)*sizeof(float));
+        cudaMalloc(&subTarget, 3*(wt/rate)*(ht/rate)*sizeof(float));
+        cudaMalloc(&subMask, (wt/rate)*(ht/rate)*sizeof(float));
+        
+        dim3 gdim, bdim(32,16);
+        
+        gdim = dim3(CeilDiv(wb,32), CeilDiv(hb,16));
+        DownSample<<<gdim, bdim>>>(prevBackground, subBackground, wb, hb, rate, 3);
+        
+        gdim = dim3(CeilDiv(wt,32), CeilDiv(ht,16)), 
+        DownSample<<<gdim, bdim>>>(target, subTarget, wt, ht, rate, 3);
+        DownSample<<<gdim, bdim>>>(mask, subMask, wt, ht, rate, 1);
+        
+        PoissonImagecloningSub(subBackground, subTarget, subMask, output,
+                               wb, hb, wt, ht, oy, ox);
+
+        gdim = dim3(CeilDiv(wb,32), CeilDiv(hb,16));
+        UpSample<<<gdim, bdim>>>(output, prevBackground, wb, hb, rate, 3);
+    }
+    
 }
