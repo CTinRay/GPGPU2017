@@ -39,25 +39,25 @@ __global__ void CalculateFixed(const float *background,
 	const int xt = blockIdx.x * blockDim.x + threadIdx.x;
 
 	if (yt < ht and xt < wt) {
-        const int directions[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, 1}};
+        const int directions[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
     
         for (int color = 0; color < 3; ++ color){
-            // sum = 4 * ct
-            float sum = 4 * target[3 * (wt * yt + xt) + color];
+            float sum = 0;
             for (int d = 0; d < 4; ++d) {
                 // calculate target part: - (et + st + wt + nt)
                 const int at = xt + directions[d][0];
                 const int bt = yt + directions[d][1];
                 if (at < wt and at >= 0 and
                     bt < ht and bt >= 0) {
-                    sum -= target[3 * (at + wt * bt) + color];
+                    sum += target[3 * (wt * yt + xt) + color] -
+                         target[3 * (at + wt * bt) + color];
 
                     // calculate background part 
-                    if (mask[at + wt * bt] < 128.0f) {
+                    if (at == 0 or at == (wt - 1) or bt == 0 or bt == (ht - 1) or
+                        mask[at + wt * bt] <= 127.0f) {
                         const int ab = xt + ox + directions[d][0];
                         const int bb = yt + oy + directions[d][1];
-                        int indb = bb + wt * ab;
-                        sum += background[indb];
+                        sum += background[3 * (ab + bb * wb) + color];
                     }
                 }
             }
@@ -74,21 +74,26 @@ __global__ void PoissonImageCloningIteration(
     const int yt = blockIdx.y * blockDim.y + threadIdx.y;
 	const int xt = blockIdx.x * blockDim.x + threadIdx.x;
 	if (yt < ht and xt < wt) {
-        const int directions[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, 1}};
+        const int directions[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
     
         for (int color = 0; color < 3; ++ color){
             // sum = fixed + background part
             float sum = fixed[3 * (xt + yt * wt) + color];
+            int nNeighbor = 0;
             for (int d = 0; d < 4; ++d) {
                 const int at = xt + directions[d][0];
                 const int bt = yt + directions[d][1];
                 if (at < wt and at >= 0 and
-                    bt < ht and bt >= 0 and
+                    bt < ht and bt >= 0 ) {
+                    nNeighbor += 1;
+                }
+                if (at < wt - 1 and at >= 1 and
+                    bt < ht - 1 and bt >= 1 and
                     mask[at + wt * bt] > 128.0f) { 
                     sum += buf1[3 * (at + wt * bt) + color];
                 }
             }
-            buf2[3 * (xt + yt * wt) + color] = 0.25 * sum;
+            buf2[3 * (xt + yt * wt) + color] = sum / nNeighbor;
         }
     }
 }
@@ -111,7 +116,8 @@ void PoissonImageCloning(
     dim3 gdim(CeilDiv(wt,32), CeilDiv(ht,16)), bdim(32,16);
     CalculateFixed<<<gdim, bdim>>>(background, target, mask, fixed,
                                    wb, hb, wt, ht, oy, ox);
-
+    cudaMemcpy(buf1, target, sizeof(float)*3*wt*ht, cudaMemcpyDeviceToDevice);
+    
     // iterate
     for (int i = 0; i < 10000; ++i) {
         PoissonImageCloningIteration<<<gdim, bdim>>>(fixed, mask, buf1, buf2, wt, ht);
