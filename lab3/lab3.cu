@@ -2,8 +2,9 @@
 #include <cstdio>
 
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
-#define N_HIER 4
-#define N_ITERS 100
+#define N_HIER 5
+#define N_ITERS 40
+#define MAX_W 1
 
 __device__ __host__ int CeilDiv(int a, int b) { return (a-1)/b + 1; }
 __device__ __host__ int CeilAlign(int a, int b) { return CeilDiv(a, b) * b; }
@@ -73,7 +74,7 @@ __global__ void CalculateFixed(const float *background,
 
 __global__ void PoissonImageCloningIteration(
     const float *fixed, const float *mask,
-    float *buf1, float *buf2, const int wt, const int ht) {
+    float *buf1, float *buf2, const int wt, const int ht, float w) {
     
     const int yt = blockIdx.y * blockDim.y + threadIdx.y;
 	const int xt = blockIdx.x * blockDim.x + threadIdx.x;
@@ -97,7 +98,9 @@ __global__ void PoissonImageCloningIteration(
                     sum += buf1[3 * (at + wt * bt) + color];
                 }
             }
-            buf2[3 * (xt + yt * wt) + color] = sum / nNeighbor;
+            float sor = w * sum / nNeighbor
+                + (1 - w)  * buf2[3 * (xt + yt * wt) + color];
+            buf2[3 * (xt + yt * wt) + color] = sor;
         }
     }
 }
@@ -177,7 +180,7 @@ void PoissonImageCloning(
 
     for (int i = 0; i < N_HIER; ++i) {
         int rate = 1 << (N_HIER - i - 1);
-        printf("rate = %d\n", rate);
+        // printf("rate = %d\n", rate);
         
         float *fixed, *subBackground, *subTarget, *subMask;
         cudaMalloc(&subBackground, 3*wb*hb*sizeof(float));
@@ -201,8 +204,14 @@ void PoissonImageCloning(
 
         // Do iteration
         for (int i = 0; i < N_ITERS; ++i) {
-            PoissonImageCloningIteration<<<gdim, bdim>>>(fixed, subMask, buf1, buf2, wt/rate, ht/rate);
-            PoissonImageCloningIteration<<<gdim, bdim>>>(fixed, subMask, buf2, buf1, wt/rate, ht/rate);
+            float w = ((N_ITERS - i - 1) * MAX_W + i * 1) / (N_ITERS - 1);
+            PoissonImageCloningIteration<<<gdim, bdim>>>(fixed, subMask,
+                                                         buf1, buf2,
+                                                         wt/rate, ht/rate, w);
+            PoissonImageCloningIteration<<<gdim, bdim>>>(fixed, subMask,
+                                                         buf2, buf1,
+                                                         wt/rate, ht/rate, w);
+            
         }
         
         // UpSample result and keep it in buf2
